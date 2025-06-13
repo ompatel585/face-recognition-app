@@ -26,15 +26,37 @@ async function getAllFaces() {
 }
 
 async function updateFaceName(faceId, name) {
-    const params = {
+    // Get GroupId for the given FaceId
+    const getParams = {
         TableName: TABLE_NAME,
         Key: { FaceId: faceId },
-        UpdateExpression: 'set #name = :name',
-        ExpressionAttributeNames: { '#name': 'Name' },
-        ExpressionAttributeValues: { ':name': name },
     };
-    await dynamoDB.update(params).promise();
-    console.log('✅ Name updated in DynamoDB');
+    const getResult = await dynamoDB.get(getParams).promise();
+    if (!getResult.Item) throw new Error('FaceId not found');
+
+    const groupId = getResult.Item.GroupId;
+
+    // Find all faces with the same GroupId
+    const scanParams = {
+        TableName: TABLE_NAME,
+        FilterExpression: '#groupId = :groupId',
+        ExpressionAttributeNames: { '#groupId': 'GroupId' },
+        ExpressionAttributeValues: { ':groupId': groupId },
+    };
+    const scanResult = await dynamoDB.scan(scanParams).promise();
+
+    // Update each face in the group
+    for (const item of scanResult.Items) {
+        const updateParams = {
+            TableName: TABLE_NAME,
+            Key: { FaceId: item.FaceId },
+            UpdateExpression: 'set #name = :name',
+            ExpressionAttributeNames: { '#name': 'Name' },
+            ExpressionAttributeValues: { ':name': name },
+        };
+        await dynamoDB.update(updateParams).promise();
+    }
+    console.log(`✅ Updated ${scanResult.Items.length} faces in GroupId ${groupId}`);
 }
 
 module.exports = { saveFaceMetadata, getAllFaces, updateFaceName };
