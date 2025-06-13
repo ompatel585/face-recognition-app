@@ -7,9 +7,13 @@ function App() {
   const [selectedGroupId, setSelectedGroupId] = useState(null);
 
   useEffect(() => {
+    console.log("Fetching faces...");
     fetch("http://13.203.201.213:4000/faces")
       .then((res) => res.json())
-      .then((data) => setFaces(data))
+      .then((data) => {
+        console.log("Faces fetched:", data);
+        setFaces(data);
+      })
       .catch((err) => console.error("Error fetching faces:", err));
   }, []);
 
@@ -19,6 +23,7 @@ function App() {
 
   const handleRename = async (faceId, groupId) => {
     const name = nameInputs[faceId] || "Unknown";
+    console.log(`Renaming FaceId: ${faceId}, GroupId: ${groupId} to ${name}`);
     try {
       await fetch(`http://13.203.201.213:4000/faces/${faceId}/rename`, {
         method: "POST",
@@ -30,18 +35,24 @@ function App() {
           face.GroupId === groupId ? { ...face, Name: name } : face
         )
       );
+      setNameInputs({ ...nameInputs, [faceId]: "" });
     } catch (err) {
       console.error("Error renaming face:", err);
     }
   };
 
   const handleFaceClick = (groupId) => {
+    console.log(
+      `Clicked GroupId: ${groupId}, Current selectedGroupId: ${selectedGroupId}`
+    );
     setSelectedGroupId(groupId === selectedGroupId ? null : groupId);
   };
 
   const displayedFaces = selectedGroupId
     ? faces.filter((face) => face.GroupId === selectedGroupId)
     : faces;
+
+  console.log("Displayed faces:", displayedFaces);
 
   return (
     <div className="p-4">
