@@ -1,0 +1,11 @@
+# .gitignore
+
+# Exclude node_modules from everywhere
+**/node_modules/
+
+# Common folders to ignore
+dist/
+.env
+*.log
+.DS_Store
+.env
