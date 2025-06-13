@@ -4,6 +4,7 @@ import "./App.css";
 function App() {
   const [faces, setFaces] = useState([]);
   const [nameInputs, setNameInputs] = useState({});
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
 
   useEffect(() => {
     fetch("http://13.203.201.213:4000/faces")
@@ -16,7 +17,7 @@ function App() {
     setNameInputs({ ...nameInputs, [faceId]: value });
   };
 
-  const handleRename = async (faceId) => {
+  const handleRename = async (faceId, groupId) => {
     const name = nameInputs[faceId] || "Unknown";
     try {
       await fetch(`http://13.203.201.213:4000/faces/${faceId}/rename`, {
@@ -26,7 +27,7 @@ function App() {
       });
       setFaces(
         faces.map((face) =>
-          face.FaceId === faceId ? { ...face, Name: name } : face
+          face.GroupId === groupId ? { ...face, Name: name } : face
         )
       );
     } catch (err) {
@@ -34,16 +35,25 @@ function App() {
     }
   };
 
+  const handleFaceClick = (groupId) => {
+    setSelectedGroupId(groupId === selectedGroupId ? null : groupId);
+  };
+
+  const displayedFaces = selectedGroupId
+    ? faces.filter((face) => face.GroupId === selectedGroupId)
+    : faces;
+
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Face Recognition Gallery</h1>
       <div className="grid grid-cols-3 gap-4">
-        {faces.map((face) => (
+        {displayedFaces.map((face) => (
           <div key={face.FaceId} className="border p-2">
             <img
               src={`https://ombckt342003.s3.ap-south-1.amazonaws.com/${face.ImageKey}`}
               alt="Face"
-              className="w-full h-48 object-cover"
+              className="w-full h-48 object-cover cursor-pointer"
+              onClick={() => handleFaceClick(face.GroupId)}
             />
             <p>Name: {face.Name}</p>
             <input
@@ -54,7 +64,7 @@ function App() {
               className="border p-1 w-full"
             />
             <button
-              onClick={() => handleRename(face.FaceId)}
+              onClick={() => handleRename(face.FaceId, face.GroupId)}
               className="bg-blue-500 text-white p-1 mt-2 w-full"
             >
               Rename

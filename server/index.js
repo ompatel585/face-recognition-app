@@ -32,6 +32,10 @@ app.post('/s3-event', async (req, res) => {
             if (message.Records && message.Records.length > 0 && message.Records[0].eventSource === 'aws:s3') {
                 const bucket = message.Records[0].s3.bucket.name;
                 const key = message.Records[0].s3.object.key;
+                if (key.endsWith('_temp.jpg')) {
+                    console.log(`⏭️ Skipping temp file: ${key}`);
+                    return res.status(200).send('Skipped temp file');
+                }
                 console.log(`📸 New Image Uploaded: ${key} in bucket ${bucket}`);
 
                 const faceData = await indexFace(bucket, key);
