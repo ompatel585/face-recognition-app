@@ -87,8 +87,7 @@ import { useState, useEffect } from "react";
                            <input
                                type="text"
                                value={nameInputs[face.FaceId] || ""}
-                               onChange={(e) => handleNameChange(face.Fac
-System: eId, e.target.value)}
+                               onChange={(e) => handleNameChange(face.FaceId, e.target.value)}
                                placeholder="Enter name"
                                className="border p-1 w-full"
                            />
