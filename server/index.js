@@ -1,27 +1,75 @@
 const express = require("express");
 const AWS = require("aws-sdk");
+const { v4: uuidv4 } = require("uuid");
+const axios = require("axios");
 const cors = require("cors");
-const { indexFace } = require("./rekognition");
-const { saveFaceMetadata, getAllFaces, updateFaceName } = require("./db");
 
 const app = express();
-const sns = new AWS.SNS({ region: "ap-south-1" });
-
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-app.use(express.text({ type: "text/plain", limit: "10mb" }));
+
+AWS.config.update({ region: "ap-south-1" });
+const rekognition = new AWS.Rekognition();
+const dynamodb = new AWS.DynamoDB.DocumentClient();
+
+const BUCKET_NAME = "ombckt342003";
+const COLLECTION_ID = "face-collection-om";
+const TABLE_NAME = "FaceMetadata";
+
+async function indexFace(bucket, key) {
+    try {
+        const params = {
+            CollectionId: COLLECTION_ID,
+            Image: { S3Object: { Bucket: bucket, Name: key } },
+            ExternalImageId: key,
+            MaxFaces: 1,
+            QualityFilter: "AUTO",
+        };
+        const data = await rekognition.indexFaces(params).promise();
+        if (!data.FaceRecords || data.FaceRecords.length === 0) {
+            console.log(`No faces detected in ${key}`);
+            return null;
+        }
+        const faceId = data.FaceRecords[0].Face.FaceId;
+        const groupId = uuidv4();
+        return { faceId, groupId, imageKey: key };
+    } catch (err) {
+        console.error(`Error indexing face in ${key}:`, err);
+        throw err;
+    }
+}
+
+async function saveFaceMetadata(faceId, groupId, imageKey) {
+    try {
+        const params = {
+            TableName: TABLE_NAME,
+            Item: {
+                CollectionId: COLLECTION_ID,
+                FaceId: faceId,
+                GroupId: groupId,
+                ImageKey: imageKey,
+                Timestamp: new Date().toISOString(),
+            },
+        };
+        await dynamodb.put(params).promise();
+        console.log(`Saved metadata for face ${faceId} in ${imageKey}`);
+    } catch (err) {
+        console.error(`Error saving metadata for ${imageKey}:`, err);
+        throw err;
+    }
+}
 
 app.post("/s3-event", async (req, res) => {
     try {
-        console.log("SNS Headers:", JSON.stringify(req.headers, null, 2));
+        console.log("SNS request received at:", new Date().toISOString());
+        console.log("SNS Headers:", req.headers);
         console.log("SNS Raw Body:", req.body);
-        const snsMessage = JSON.parse(req.body);
+        const snsMessage = req.body.Type ? req.body : JSON.parse(req.body);
         console.log("SNS Message:", snsMessage);
 
         if (snsMessage.Type === "SubscriptionConfirmation") {
             const subscribeUrl = snsMessage.SubscribeURL;
             console.log("🔔 Confirming SNS Subscription:", subscribeUrl);
-            const axios = require("axios");
             await axios.get(subscribeUrl);
             console.log("✅ SNS Subscription confirmed");
             return res.status(200).send("Subscription confirmed");
@@ -35,8 +83,8 @@ app.post("/s3-event", async (req, res) => {
             }
 
             for (const record of message.Records) {
-                if (record.EventSource !== "aws:s3" || record.s3.bucket.name !== "ombckt342003") {
-                    console.log("Skipping non-S3 or wrong bucket event:", record);
+                if (record.eventSource !== "aws:s3" || record.s3.bucket.name !== BUCKET_NAME) {
+                    console.log("Skipping non-S3 or wrong bucket event:", JSON.stringify(record, null, 2));
                     continue;
                 }
 
@@ -46,9 +94,9 @@ app.post("/s3-event", async (req, res) => {
                     continue;
                 }
 
-                console.log(`📸 New Image Uploaded: ${key} in bucket ombckt342003`);
+                console.log(`📸 New Image Uploaded: ${key} in bucket ${BUCKET_NAME}`);
                 try {
-                    const faceData = await indexFace("ombckt342003", key);
+                    const faceData = await indexFace(BUCKET_NAME, key);
                     if (faceData) {
                         await saveFaceMetadata(faceData.faceId, faceData.groupId, faceData.imageKey);
                     }
@@ -59,7 +107,6 @@ app.post("/s3-event", async (req, res) => {
                     } else if (err.code === "InvalidS3ObjectException") {
                         console.error(`Invalid S3 object for ${key}: Check key, region, or permissions`);
                     }
-                    // Continue processing other records
                 }
             }
             res.status(200).send("OK");
@@ -75,27 +122,40 @@ app.post("/s3-event", async (req, res) => {
 
 app.get("/faces", async (req, res) => {
     try {
-        const faces = await getAllFaces();
-        console.log("Fetched faces:", faces);
-        res.json(faces);
-    } catch (error) {
-        console.error("Error fetching faces:", error.message);
-        res.status(500).send("Error fetching faces");
+        const params = {
+            TableName: TABLE_NAME,
+            FilterExpression: "CollectionId = :collectionId",
+            ExpressionAttributeValues: { ":collectionId": COLLECTION_ID },
+        };
+        const data = await dynamodb.scan(params).promise();
+        res.json(data.Items || []);
+    } catch (err) {
+        console.error("Error fetching faces:", err);
+        res.status(500).json({ error: "Failed to fetch faces" });
     }
 });
 
-app.post("/faces/:faceId/rename", async (req, res) => {
+app.put("/faces/:faceId", async (req, res) => {
     try {
         const { faceId } = req.params;
         const { name } = req.body;
-        await updateFaceName(faceId, name);
-        res.status(200).send("Name updated");
-    } catch (error) {
-        console.error("Error updating name:", error.message);
-        res.status(500).send("Error updating name");
+        const params = {
+            TableName: TABLE_NAME,
+            Key: { CollectionId: COLLECTION_ID, FaceId: faceId },
+            UpdateExpression: "SET #name = :name",
+            ExpressionAttributeNames: { "#name": "Name" },
+            ExpressionAttributeValues: { ":name": name },
+            ReturnValues: "ALL_NEW",
+        };
+        const data = await dynamodb.update(params).promise();
+        res.json(data.Attributes);
+    } catch (err) {
+        console.error("Error updating face:", err);
+        res.status(500).json({ error: "Failed to update face" });
     }
 });
 
-app.listen(4000, () => {
-    console.log("🚀 App listening on http://0.0.0.0:4000");
+const PORT = 4000;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
