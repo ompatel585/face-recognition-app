@@ -45,7 +45,7 @@ app.post('/s3-event', async (req, res) => {
 
             for (const record of message.Records) {
                 if (record.eventSource !== 'aws:s3' || record.s3.bucket.name !== BUCKET_NAME) {
-                    console.log(`Skipping non-S3 or wrong bucket event: ${JSON.stringify(record, null, 2)}`);
+                    console.log(`Skipping non-S3 or wrong bucket event: ${JSON.stringify(record)}`);
                     continue;
                 }
 
@@ -62,11 +62,18 @@ app.post('/s3-event', async (req, res) => {
                 };
                 const scanResult = await dynamodb.scan(scanParams).promise();
                 if (scanResult.Items.length > 0) {
-                    console.log(`Skipping already processed image: ${key}`);
-                    continue;
+                    console.log(`Found ${scanResult.Items.length} duplicates for ${key}`);
+                    for (const item of scanResult.Items) {
+                        const deleteParams = {
+                            TableName: TABLE_NAME,
+                            Key: { FaceId: item.FaceId }
+                        };
+                        await dynamodb.delete(deleteParams).promise();
+                        console.log(`Deleted duplicate FaceId ${item.FaceId} for ${key}`);
+                    }
                 }
 
-                console.log(`📸 New Image Uploaded: ${key} in bucket ${BUCKET_NAME}`);
+                console.log(`📸 Processing new image: ${key} in bucket ${BUCKET_NAME}`);
                 try {
                     const faceData = await indexFace(BUCKET_NAME, key);
                     if (faceData) {

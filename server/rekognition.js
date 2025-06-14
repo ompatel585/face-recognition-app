@@ -25,7 +25,7 @@ async function indexFace(bucket, key) {
             CollectionId: COLLECTION_ID,
             FaceId: faceId,
             MaxFaces: 10,
-            FaceMatchThreshold: 90,
+            FaceMatchThreshold: 80,
         };
         const searchResponse = await rekognition.searchFaces(searchParams).promise();
 
