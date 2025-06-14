@@ -7,7 +7,7 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-app.use("/s3-event", express.raw({ type: "text/plain", limit: "10mb" }));
+app.use("/s3-event", express.raw({ type: "*/*", limit: "10mb" }));
 
 AWS.config.update({ region: "ap-south-1" });
 const rekognition = new AWS.Rekognition();
@@ -19,10 +19,13 @@ const TABLE_NAME = "FaceMetadata";
 
 async function indexFace(bucket, key) {
     try {
+        console.log(`Attempting to index face for ${key}`);
+        const externalImageId = key.split("/").pop().replace(/[^a-zA-Z0-9_.\-]/g, "_"); // Sanitize to test14.jpg
+        console.log(`Using ExternalImageId: ${externalImageId}`);
         const params = {
             CollectionId: COLLECTION_ID,
             Image: { S3Object: { Bucket: bucket, Name: key } },
-            ExternalImageId: key,
+            ExternalImageId: externalImageId,
             MaxFaces: 1,
             QualityFilter: "AUTO",
         };
@@ -33,6 +36,7 @@ async function indexFace(bucket, key) {
         }
         const faceId = data.FaceRecords[0].Face.FaceId;
         const groupId = uuidv4();
+        console.log(`Indexed face ${faceId} for ${key} with group ${groupId}`);
         return { faceId, groupId, imageKey: key };
     } catch (err) {
         console.error(`Error indexing face in ${key}:`, err);
@@ -42,6 +46,7 @@ async function indexFace(bucket, key) {
 
 async function saveFaceMetadata(faceId, groupId, imageKey) {
     try {
+        console.log(`Saving metadata for face ${faceId} in ${imageKey}`);
         const params = {
             TableName: TABLE_NAME,
             Item: {
@@ -69,7 +74,7 @@ app.post("/s3-event", async (req, res) => {
         try {
             snsMessage = JSON.parse(req.body.toString());
         } catch (err) {
-            console.error("Invalid SNS payload:", err);
+            console.error("Invalid SNS payload:", err.message);
             return res.status(400).send("Invalid SNS payload");
         }
         console.log("SNS Message:", snsMessage);
@@ -83,10 +88,16 @@ app.post("/s3-event", async (req, res) => {
         }
 
         if (snsMessage.Type === "Notification" && snsMessage.Message) {
-            const message = JSON.parse(snsMessage.Message);
+            let message;
+            try {
+                message = JSON.parse(snsMessage.Message);
+            } catch (err) {
+                console.error("Invalid SNS message format:", err.message);
+                return res.status(400).json({ error: "Invalid SNS message format" });
+            }
             if (!message.Records || !Array.isArray(message.Records)) {
-                console.error("Invalid SNS message format:", message);
-                return res.status(400).json({ error: "Invalid SNS message" });
+                console.error("Invalid SNS message records:", message);
+                return res.status(400).json({ error: "Invalid SNS message records" });
             }
 
             for (const record of message.Records) {
@@ -113,6 +124,10 @@ app.post("/s3-event", async (req, res) => {
                         console.error(`Invalid image format for ${key}`);
                     } else if (err.code === "InvalidS3ObjectException") {
                         console.error(`Invalid S3 object for ${key}: Check key, region, or permissions`);
+                    } else if (err.code === "ValidationException") {
+                        console.error(`Validation error for ${key}:`, err.message);
+                    } else {
+                        console.error(`Unexpected error for ${key}:`, err);
                     }
                 }
             }
@@ -122,22 +137,24 @@ app.post("/s3-event", async (req, res) => {
             res.status(200).send("OK");
         }
     } catch (err) {
-        console.error("Error processing SNS event:", err);
+        console.error("Error processing SNS event:", err.message);
         res.status(500).send("Error");
     }
 });
 
 app.get("/faces", async (req, res) => {
     try {
+        console.log("Fetching faces from DynamoDB");
         const params = {
             TableName: TABLE_NAME,
             FilterExpression: "CollectionId = :collectionId",
             ExpressionAttributeValues: { ":collectionId": COLLECTION_ID },
         };
         const data = await dynamodb.scan(params).promise();
+        console.log(`Fetched ${data.Items?.length || 0} faces`);
         res.json(data.Items || []);
     } catch (err) {
-        console.error("Error fetching faces:", err);
+        console.error("Error fetching faces:", err.message);
         res.status(500).json({ error: "Failed to fetch faces" });
     }
 });
@@ -146,6 +163,7 @@ app.put("/faces/:faceId", async (req, res) => {
     try {
         const { faceId } = req.params;
         const { name } = req.body;
+        console.log(`Updating face ${faceId} with name ${name}`);
         const params = {
             TableName: TABLE_NAME,
             Key: { CollectionId: COLLECTION_ID, FaceId: faceId },
@@ -155,9 +173,10 @@ app.put("/faces/:faceId", async (req, res) => {
             ReturnValues: "ALL_NEW",
         };
         const data = await dynamodb.update(params).promise();
+        console.log(`Updated face ${faceId}`);
         res.json(data.Attributes);
     } catch (err) {
-        console.error("Error updating face:", err);
+        console.error("Error updating face:", err.message);
         res.status(500).json({ error: "Failed to update face" });
     }
 });
