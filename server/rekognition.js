@@ -12,6 +12,7 @@ async function indexFace(bucket, key) {
             Image: { S3Object: { Bucket: bucket, Name: key } },
             ExternalImageId: key.split('/').pop(),
             MaxFaces: 1,
+            QualityFilter: 'AUTO',
         };
         const indexResponse = await rekognition.indexFaces(indexParams).promise();
         if (indexResponse.FaceRecords.length === 0) {
@@ -20,26 +21,32 @@ async function indexFace(bucket, key) {
         }
         const faceId = indexResponse.FaceRecords[0].Face.FaceId;
 
+        // Search for similar faces
         const searchParams = {
             CollectionId: COLLECTION_ID,
             FaceId: faceId,
             MaxFaces: 10,
-            FaceMatchThreshold: 80, // Match faces with 80%+ similarity
+            FaceMatchThreshold: 85, // Increased for better grouping
         };
         const searchResponse = await rekognition.searchFaces(searchParams).promise();
 
         let groupId = faceId; // Default to own FaceId
         if (searchResponse.FaceMatches.length > 0) {
             const matchedFaceId = searchResponse.FaceMatches[0].Face.FaceId;
+            const similarity = searchResponse.FaceMatches[0].Similarity;
+            console.log(`Found match for ${key}: FaceId ${matchedFaceId}, Similarity ${similarity}%`);
             // Fetch existing GroupId from DynamoDB
             const dbParams = {
                 TableName: TABLE_NAME,
-                Key: { FaceId: matchedFaceId },
+                Key: { CollectionId: COLLECTION_ID, FaceId: matchedFaceId },
             };
             const dbResponse = await dynamoDB.get(dbParams).promise();
             if (dbResponse.Item && dbResponse.Item.GroupId) {
                 groupId = dbResponse.Item.GroupId;
+                console.log(`Assigned GroupId ${groupId} to ${key}`);
             }
+        } else {
+            console.log(`No similar faces found for ${key}, using new GroupId ${groupId}`);
         }
 
         return { faceId, groupId, imageKey: key };
