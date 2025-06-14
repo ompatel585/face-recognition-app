@@ -16,37 +16,31 @@ async function indexFace(bucket, key) {
         };
         const indexResponse = await rekognition.indexFaces(indexParams).promise();
         if (indexResponse.FaceRecords.length === 0) {
-            console.log('❌ No faces detected in', key);
+            console.log(`❌ No faces detected in ${key}`);
             return null;
         }
         const faceId = indexResponse.FaceRecords[0].Face.FaceId;
 
-        // Search for similar faces
         const searchParams = {
             CollectionId: COLLECTION_ID,
             FaceId: faceId,
             MaxFaces: 10,
-            FaceMatchThreshold: 90, // Increased for stricter matching
+            FaceMatchThreshold: 90,
         };
         const searchResponse = await rekognition.searchFaces(searchParams).promise();
 
-        let groupId = faceId; // Default to own FaceId
+        let groupId = faceId;
         if (searchResponse.FaceMatches.length > 0) {
             const matchedFaceId = searchResponse.FaceMatches[0].Face.FaceId;
             const similarity = searchResponse.FaceMatches[0].Similarity;
             console.log(`Found match for ${key}: FaceId ${matchedFaceId}, Similarity ${similarity}%`);
-            // Fetch existing GroupId from DynamoDB
             const dbParams = {
                 TableName: TABLE_NAME,
-                FilterExpression: 'CollectionId = :collectionId AND FaceId = :faceId',
-                ExpressionAttributeValues: {
-                    ':collectionId': COLLECTION_ID,
-                    ':faceId': matchedFaceId
-                }
+                Key: { FaceId: matchedFaceId }
             };
-            const dbResponse = await dynamoDB.scan(dbParams).promise();
-            if (dbResponse.Items.length > 0 && dbResponse.Items[0].GroupId) {
-                groupId = dbResponse.Items[0].GroupId;
+            const dbResponse = await dynamoDB.get(dbParams).promise();
+            if (dbResponse.Item && dbResponse.Item.GroupId) {
+                groupId = dbResponse.Item.GroupId;
                 console.log(`Assigned GroupId ${groupId} to ${key}`);
             }
         } else {
@@ -55,7 +49,7 @@ async function indexFace(bucket, key) {
 
         return { faceId, groupId, imageKey: key };
     } catch (error) {
-        console.error('❌ Error in Rekognition:', error);
+        console.error(`❌ Error in Rekognition for ${key}:`, error);
         throw error;
     }
 }
