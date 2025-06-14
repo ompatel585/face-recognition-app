@@ -1,8 +1,9 @@
 const express = require("express");
 const AWS = require("aws-sdk");
-const { v4: uuidv4 } = require("uuid");
 const axios = require("axios");
 const cors = require("cors");
+const { indexFace } = require("./rekognition");
+const { saveFaceMetadata, getAllFaces, updateFaceName } = require("./db");
 
 const app = express();
 app.use(cors());
@@ -10,55 +11,11 @@ app.use(express.json({ limit: "10mb" }));
 app.use("/s3-event", express.raw({ type: "text/plain", limit: "10mb" }));
 
 AWS.config.update({ region: "ap-south-1" });
-const rekognition = new AWS.Rekognition();
 const dynamodb = new AWS.DynamoDB.DocumentClient();
 
 const BUCKET_NAME = "ombckt342003";
 const COLLECTION_ID = "face-collection-om";
 const TABLE_NAME = "FaceMetadata";
-
-async function indexFace(bucket, key) {
-    try {
-        const params = {
-            CollectionId: COLLECTION_ID,
-            Image: { S3Object: { Bucket: bucket, Name: key } },
-            ExternalImageId: key,
-            MaxFaces: 1,
-            QualityFilter: "AUTO",
-        };
-        const data = await rekognition.indexFaces(params).promise();
-        if (!data.FaceRecords || data.FaceRecords.length === 0) {
-            console.log(`No faces detected in ${key}`);
-            return null;
-        }
-        const faceId = data.FaceRecords[0].Face.FaceId;
-        const groupId = uuidv4();
-        return { faceId, groupId, imageKey: key };
-    } catch (err) {
-        console.error(`Error indexing face in ${key}:`, err);
-        throw err;
-    }
-}
-
-async function saveFaceMetadata(faceId, groupId, imageKey) {
-    try {
-        const params = {
-            TableName: TABLE_NAME,
-            Item: {
-                CollectionId: COLLECTION_ID,
-                FaceId: faceId,
-                GroupId: groupId,
-                ImageKey: imageKey,
-                Timestamp: new Date().toISOString(),
-            },
-        };
-        await dynamodb.put(params).promise();
-        console.log(`Saved metadata for face ${faceId} in ${imageKey}`);
-    } catch (err) {
-        console.error(`Error saving metadata for ${imageKey}:`, err);
-        throw err;
-    }
-}
 
 app.post("/s3-event", async (req, res) => {
     try {
@@ -101,6 +58,16 @@ app.post("/s3-event", async (req, res) => {
                     continue;
                 }
 
+                // Check for existing metadata
+                const existing = await dynamodb.get({
+                    TableName: TABLE_NAME,
+                    Key: { CollectionId: COLLECTION_ID, ImageKey: key }
+                }).promise();
+                if (existing.Item) {
+                    console.log(`Skipping already processed image: ${key}`);
+                    continue;
+                }
+
                 console.log(`📸 New Image Uploaded: ${key} in bucket ${BUCKET_NAME}`);
                 try {
                     const faceData = await indexFace(BUCKET_NAME, key);
@@ -129,13 +96,8 @@ app.post("/s3-event", async (req, res) => {
 
 app.get("/faces", async (req, res) => {
     try {
-        const params = {
-            TableName: TABLE_NAME,
-            FilterExpression: "CollectionId = :collectionId",
-            ExpressionAttributeValues: { ":collectionId": COLLECTION_ID },
-        };
-        const data = await dynamodb.scan(params).promise();
-        res.json(data.Items || []);
+        const faces = await getAllFaces();
+        res.json(faces);
     } catch (err) {
         console.error("Error fetching faces:", err);
         res.status(500).json({ error: "Failed to fetch faces" });
@@ -146,16 +108,9 @@ app.put("/faces/:faceId", async (req, res) => {
     try {
         const { faceId } = req.params;
         const { name } = req.body;
-        const params = {
-            TableName: TABLE_NAME,
-            Key: { CollectionId: COLLECTION_ID, FaceId: faceId },
-            UpdateExpression: "SET #name = :name",
-            ExpressionAttributeNames: { "#name": "Name" },
-            ExpressionAttributeValues: { ":name": name },
-            ReturnValues: "ALL_NEW",
-        };
-        const data = await dynamodb.update(params).promise();
-        res.json(data.Attributes);
+        await updateFaceName(faceId, name);
+        const faces = await getAllFaces();
+        res.json(faces.find(f => f.FaceId === faceId));
     } catch (err) {
         console.error("Error updating face:", err);
         res.status(500).json({ error: "Failed to update face" });
