@@ -7,6 +7,7 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+app.use("/s3-event", express.raw({ type: "text/plain", limit: "10mb" }));
 
 AWS.config.update({ region: "ap-south-1" });
 const rekognition = new AWS.Rekognition();
@@ -63,8 +64,14 @@ app.post("/s3-event", async (req, res) => {
     try {
         console.log("SNS request received at:", new Date().toISOString());
         console.log("SNS Headers:", req.headers);
-        console.log("SNS Raw Body:", req.body);
-        const snsMessage = req.body.Type ? req.body : JSON.parse(req.body);
+        console.log("SNS Raw Body:", req.body.toString());
+        let snsMessage;
+        try {
+            snsMessage = JSON.parse(req.body.toString());
+        } catch (err) {
+            console.error("Invalid SNS payload:", err);
+            return res.status(400).send("Invalid SNS payload");
+        }
         console.log("SNS Message:", snsMessage);
 
         if (snsMessage.Type === "SubscriptionConfirmation") {
