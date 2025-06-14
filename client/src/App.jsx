@@ -74,32 +74,36 @@ import { useState, useEffect } from "react";
                        className="border p-2 w-full rounded"
                    />
                </div>
-               <div className="grid grid-cols-3 gap-4">
-                   {displayedFaces.map((face) => (
-                       <div key={face.FaceId} className="border p-2">
-                           <img
-                               src={`https://ombckt342003.s3.ap-south-1.amazonaws.com/${face.ImageKey}`}
-                               alt="Face"
-                               className="w-full h-48 object-cover cursor-pointer"
-                               onClick={() => handleFaceClick(face.GroupId)}
-                           />
-                           <p>Name: {face.Name}</p>
-                           <input
-                               type="text"
-                               value={nameInputs[face.FaceId] || ""}
-                               onChange={(e) => handleNameChange(face.FaceId, e.target.value)}
-                               placeholder="Enter name"
-                               className="border p-1 w-full"
-                           />
-                           <button
-                               onClick={() => handleRename(face.FaceId, face.GroupId)}
-                               className="bg-blue-500 text-white p-1 mt-2 w-full"
-                           >
-                               Rename
-                           </button>
-                       </div>
-                   ))}
-               </div>
+               {displayedFaces.length === 0 ? (
+                   <p className="text-center text-gray-500">No match found</p>
+               ) : (
+                   <div className="grid grid-cols-3 gap-4">
+                       {displayedFaces.map((face) => (
+                           <div key={face.FaceId} className="border p-2">
+                               <img
+                                   src={`https://ombckt342003.s3.ap-south-1.amazonaws.com/${face.ImageKey}`}
+                                   alt="Face"
+                                   className="w-full h-48 object-cover cursor-pointer"
+                                   onClick={() => handleFaceClick(face.GroupId)}
+                               />
+                               <p>Name: {face.Name}</p>
+                               <input
+                                   type="text"
+                                   value={nameInputs[face.FaceId] || ""}
+                                   onChange={(e) => handleNameChange(face.FaceId, e.target.value)}
+                                   placeholder="Enter name"
+                                   className="border p-1 w-full"
+                               />
+                               <button
+                                   onClick={() => handleRename(face.FaceId, face.GroupId)}
+                                   className="bg-blue-500 text-white p-1 mt-2 w-full"
+                               >
+                                   Rename
+                               </button>
+                           </div>
+                       ))}
+                   </div>
+               )}
            </div>
        );
    }
