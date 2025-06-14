@@ -20,7 +20,7 @@ const TABLE_NAME = "FaceMetadata";
 async function indexFace(bucket, key) {
     try {
         console.log(`Attempting to index face for ${key}`);
-        const externalImageId = key.split("/").pop().replace(/[^a-zA-Z0-9_.\-]/g, "_"); // Sanitize to test14.jpg
+        const externalImageId = key.split("/").pop().replace(/[^a-zA-Z0-9_.\-]/g, "_");
         console.log(`Using ExternalImageId: ${externalImageId}`);
         const params = {
             CollectionId: COLLECTION_ID,
@@ -74,7 +74,7 @@ app.post("/s3-event", async (req, res) => {
         try {
             snsMessage = JSON.parse(req.body.toString());
         } catch (err) {
-            console.error("Invalid SNS payload:", err.message);
+            console.error("Invalid SNS payload:", err);
             return res.status(400).send("Invalid SNS payload");
         }
         console.log("SNS Message:", snsMessage);
@@ -92,7 +92,7 @@ app.post("/s3-event", async (req, res) => {
             try {
                 message = JSON.parse(snsMessage.Message);
             } catch (err) {
-                console.error("Invalid SNS message format:", err.message);
+                console.error("Invalid SNS message format:", err);
                 return res.status(400).json({ error: "Invalid SNS message format" });
             }
             if (!message.Records || !Array.isArray(message.Records)) {
@@ -126,8 +126,6 @@ app.post("/s3-event", async (req, res) => {
                         console.error(`Invalid S3 object for ${key}: Check key, region, or permissions`);
                     } else if (err.code === "ValidationException") {
                         console.error(`Validation error for ${key}:`, err.message);
-                    } else {
-                        console.error(`Unexpected error for ${key}:`, err);
                     }
                 }
             }
@@ -137,7 +135,7 @@ app.post("/s3-event", async (req, res) => {
             res.status(200).send("OK");
         }
     } catch (err) {
-        console.error("Error processing SNS event:", err.message);
+        console.error("Error processing SNS event:", err);
         res.status(500).send("Error");
     }
 });
@@ -154,7 +152,7 @@ app.get("/faces", async (req, res) => {
         console.log(`Fetched ${data.Items?.length || 0} faces`);
         res.json(data.Items || []);
     } catch (err) {
-        console.error("Error fetching faces:", err.message);
+        console.error("Error fetching faces:", err);
         res.status(500).json({ error: "Failed to fetch faces" });
     }
 });
@@ -176,7 +174,7 @@ app.put("/faces/:faceId", async (req, res) => {
         console.log(`Updated face ${faceId}`);
         res.json(data.Attributes);
     } catch (err) {
-        console.error("Error updating face:", err.message);
+        console.error("Error updating face:", err);
         res.status(500).json({ error: "Failed to update face" });
     }
 });
