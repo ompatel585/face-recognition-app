@@ -26,7 +26,7 @@ async function indexFace(bucket, key) {
             CollectionId: COLLECTION_ID,
             FaceId: faceId,
             MaxFaces: 10,
-            FaceMatchThreshold: 85, // Increased for better grouping
+            FaceMatchThreshold: 90, // Increased for stricter matching
         };
         const searchResponse = await rekognition.searchFaces(searchParams).promise();
 
@@ -38,11 +38,15 @@ async function indexFace(bucket, key) {
             // Fetch existing GroupId from DynamoDB
             const dbParams = {
                 TableName: TABLE_NAME,
-                Key: { CollectionId: COLLECTION_ID, FaceId: matchedFaceId },
+                FilterExpression: 'CollectionId = :collectionId AND FaceId = :faceId',
+                ExpressionAttributeValues: {
+                    ':collectionId': COLLECTION_ID,
+                    ':faceId': matchedFaceId
+                }
             };
-            const dbResponse = await dynamoDB.get(dbParams).promise();
-            if (dbResponse.Item && dbResponse.Item.GroupId) {
-                groupId = dbResponse.Item.GroupId;
+            const dbResponse = await dynamoDB.scan(dbParams).promise();
+            if (dbResponse.Items.length > 0 && dbResponse.Items[0].GroupId) {
+                groupId = dbResponse.Items[0].GroupId;
                 console.log(`Assigned GroupId ${groupId} to ${key}`);
             }
         } else {
